@@ -7,8 +7,17 @@ import {
 } from "@/lib/api/response";
 import type { SubscriptionTier } from "@/types";
 
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
+let _workos: WorkOS | undefined;
+function getWorkos(): WorkOS {
+  if (!_workos) {
+    _workos = new WorkOS(process.env.WORKOS_API_KEY!, {
+      clientId: process.env.WORKOS_CLIENT_ID!,
+    });
+  }
+  return _workos;
+}
+const workos = new Proxy({} as WorkOS, {
+  get(_, prop) { return (getWorkos() as any)[prop]; },
 });
 
 export async function GET(req: NextRequest) {
