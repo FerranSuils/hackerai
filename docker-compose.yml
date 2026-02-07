@@ -80,9 +80,12 @@ services:
       context: .
       dockerfile: docker/Dockerfile.frontend
       args:
-        NEXT_PUBLIC_CONVEX_URL: ${NEXT_PUBLIC_CONVEX_URL}
-        NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-https://hacerkai.com/callback}
-        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-https://hacerkai.com}
+        # IMPORTANTE: Docker Compose interpola ${} desde .env (no .env.production).
+        # Ejecutar con: docker compose --env-file .env.production up -d --build
+        # O crear symlink: ln -s .env.production .env
+        NEXT_PUBLIC_CONVEX_URL: ${NEXT_PUBLIC_CONVEX_URL:-https://clean-fish-146.convex.cloud}
+        NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-https://hacerkai.devsuils.com/callback}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-https://hacerkai.devsuils.com}
         NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
         NEXT_PUBLIC_POSTHOG_TRACK_FREE_USERS: ${NEXT_PUBLIC_POSTHOG_TRACK_FREE_USERS:-}
