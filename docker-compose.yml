@@ -1,0 +1,161 @@
+# ============================================================================
+# HackerAI - Docker Compose (Producción)
+# Servidor: Ubuntu Plesk
+# ============================================================================
+#
+# ARQUITECTURA:
+# ┌─────────────────────────────────────────────────────────────────┐
+# │  Plesk / Nginx (HTTPS :443)                                    │
+# │  └─ proxy_pass → frontend:3000                                 │
+# ├─────────────────────────────────────────────────────────────────┤
+# │  frontend (Next.js)  ←→  redis (stream cancellation pub/sub)   │
+# │       │                                                         │
+# │       ├── Convex Cloud (DB + serverless functions)              │
+# │       ├── WorkOS (autenticación)                                │
+# │       ├── OpenRouter / xAI / OpenAI (AI providers)              │
+# │       ├── E2B (sandboxes de ejecución de código)                │
+# │       ├── AWS S3 (almacenamiento de archivos)                   │
+# │       ├── Stripe (pagos)                                        │
+# │       ├── Upstash Redis (rate limiting - servicio externo)      │
+# │       └── Axiom / PostHog (observabilidad / analytics)          │
+# └─────────────────────────────────────────────────────────────────┘
+#
+# NOTA: Los servicios externos (Convex, WorkOS, E2B, Stripe, etc.)
+# son cloud-managed y solo requieren API keys en .env.production.
+# No necesitan contenedores Docker.
+#
+# INSTRUCCIONES:
+# 1. cp .env.production.example .env.production  (y rellenar valores)
+# 2. docker compose up -d --build
+# 3. Configurar proxy reverso en Plesk (ver deploy/README.md)
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # Redis - Stream cancellation pub/sub & cache
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: hackerai-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD:-hackerai_redis_secret}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-hackerai_redis_secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - hackerai-network
+
+  # ==========================================================================
+  # Frontend + API (Next.js Standalone)
+  # ==========================================================================
+  # Este es el servicio principal. Next.js sirve tanto el frontend React
+  # como todas las API routes (/api/chat, /api/agent, /api/auth, etc.)
+  # No hay un "backend" separado — todo va por Next.js API Routes.
+  # ==========================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_CONVEX_URL: ${NEXT_PUBLIC_CONVEX_URL}
+        NEXT_PUBLIC_WORKOS_REDIRECT_URI: ${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-https://hacerkai.com/callback}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-https://hacerkai.com}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
+        NEXT_PUBLIC_POSTHOG_TRACK_FREE_USERS: ${NEXT_PUBLIC_POSTHOG_TRACK_FREE_USERS:-}
+        NEXT_PUBLIC_FF_CROSS_TAB_TOKEN_SHARING: ${NEXT_PUBLIC_FF_CROSS_TAB_TOKEN_SHARING:-}
+    container_name: hackerai-frontend
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      # Redis interno del compose (sobreescribe REDIS_URL del .env si existe)
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-hackerai_redis_secret}@redis:6379
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - hackerai-network
+
+  # ==========================================================================
+  # Watchtower - Auto-actualización de contenedores (opcional)
+  # Descomenta para habilitar actualizaciones automáticas
+  # ==========================================================================
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   container_name: hackerai-watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     - WATCHTOWER_CLEANUP=true
+  #     - WATCHTOWER_POLL_INTERVAL=300
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "5m"
+  #       max-file: "2"
+  #   networks:
+  #     - hackerai-network
+
+# ============================================================================
+# Volumes persistentes
+# ============================================================================
+volumes:
+  redis_data:
+    driver: local
+
+# ============================================================================
+# Red interna
+# ============================================================================
+networks:
+  hackerai-network:
+    driver: bridge
+  #       max-file: "2"
