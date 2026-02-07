@@ -93,7 +93,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3009:3000"
     env_file:
       - .env.production
     environment:
